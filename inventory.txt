@@ -1,0 +1,23 @@
+[master]
+master-node.myredhat.com ansible_host=192.168.33.10
+
+[worker1]
+worker-node1.myredhat.com ansible_host=192.168.33.11
+
+[worker2]
+worker-node2.myredhat.com ansible_host=192.168.33.12
+
+[worker3]
+worker-node3.myredhat.com ansible_host=192.168.33.13
+
+[worker:children]
+worker1
+worker2
+worker3
+
+[master:vars]
+ports='["6443/tcp", "2379-2380/tcp", "10250/tcp", "10251/tcp", "10252/tcp"]'
+
+[worker:vars]
+ports='["10250/tcp", "30000-32767/tcp"]'"
+

@@ -1,0 +1,162 @@
+- hosts: all
+  tasks:
+    #- firewalld:
+    #    port: "{{ item }}"
+    #    permanent: true
+    #    state: enabled
+    #    immediate: true
+    ##  with_items: "{{ ports }}"
+
+    - shell: swapoff -a
+ 
+    - lineinfile:
+        dest: /etc/fstab
+        state: present
+        regexp: '^/dev/mapper/centos-swap'
+        line: '#/dev/mapper/centos-swap'
+        backrefs: yes
+
+    - yum:
+        name: "{{ packages }}"
+      vars:
+        packages:
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+
+    - shell: yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+    - yum:
+        name: "{{ packages}}"
+      vars:
+        packages:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+    
+    - systemd:
+        name: docker
+        enabled: yes
+        state: started
+        masked: no
+
+    - lineinfile:
+        dest: /etc/yum.repos.d/kubernetes.repo
+        create: yes
+        state: present
+        line: "{{ item }}"
+      with_items:
+        - '[kubernetes]'
+        - 'name=kubernetes'
+        - 'baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64'
+        - 'enabled=1'
+        - 'gpgcheck=1'
+        - 'repo_gpgcheck=1'
+        - 'gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg'
+        - 'exclude=kube*'
+
+    - selinux:
+        state: disabled
+
+    - lineinfile:
+        dest: /etc/selinux/config
+        state: present
+        regexp: '^SELINUX=enforcing$'
+        line: 'SELINUX=permissive'
+        backrefs: yes
+
+    - yum:
+        name: "{{ packages }}"
+        state: latest
+        disable_excludes: 'kubernetes'
+      vars:
+        packages:
+          - kubelet
+          - kubeadm
+          - kubectl
+
+    - systemd:
+        name: 'kubelet'
+        enabled: yes
+
+    - lineinfile:
+        dest: /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
+        state: present
+        regexp: '^EnvironmentFile=\-/etc/sysconfig/kubelet\nExecStart='
+        line: "EnvironmentFile=-/etc/sysconfig/kubelet\nEnvironment='KUBELET_EXTRA_ARGS=--cgroup=systemd'\nExecStart="
+        backrefs: yes
+
+    - sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        sysctl_file: "/etc/sysctl.d/k8s.conf"
+        state: present
+        reload: yes
+      with_items:
+        - { name: 'net.bridge.bridge-nf-call-ip6tables', value: 1 }
+        - { name: 'net.bridge.bridge-nf-call-iptables', value: 1 }
+
+    - systemd:
+        name: kubelet
+        state: restarted
+        daemon_reload: yes
+      when: 
+        inventory_hostname in groups['master']
+
+    - shell: kubeadm init --pod-network-cidr=192.168.33.0/16 --apiserver-advertise-address=192.168.33.10
+      when:
+        inventory_hostname in groups['master']
+        
+    - file:
+        path: /root/.kube
+        state: directory
+        owner: root
+        group: root
+        mode: 0777
+      when:
+        inventory_hostname in groups['master']
+        
+    - shell: cp -i /etc/kubernetes/admin.conf /root/.kube/config
+      when:
+        inventory_hostname in groups['master']
+
+    - shell: kubeadm token create --print-join-command
+      register:
+        kubeadm_join
+      when:
+        inventory_hostname in groups['master']
+        
+    - debug:
+        msg: "{{ kubeadm_join }}"
+
+    - shell: echo "{{ kubeadm_join.stdout_lines[0] }}" > "/root/kubeadm_join"
+      when:
+        inventory_hostname in groups['master']
+
+    - fetch:
+        src: /root/kubeadm_join
+        dest: /root/kubeadm_join
+        flat: true
+      when:
+        inventory_hostname in groups['master']
+
+    - copy:
+        src: /root/kubeadm_join
+        dest: /root/kubeadm_join
+      when:
+        inventory_hostname in groups['worker']
+
+    - lineinfile:
+        dest: /root/.bashrc
+        state: present
+        line: "export KUBECONFIG=/etc/kubernetes/admin.conf"
+        regexp: "^export KUBECONFIG="
+        backrefs: yes
+
+    - shell: cat /root/kubeadm_join | sh
+      when:
+        inventory_hostname in groups['worker']
+
+    - shell: kubectl apply -f https://docs.projectcalico.org/v3.8/manifests/calico.yaml 
+      when:
+        inventory_hostname in groups['master']
