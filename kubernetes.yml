@@ -1,12 +1,5 @@
 - hosts: all
   tasks:
-    #- firewalld:
-    #    port: "{{ item }}"
-    #    permanent: true
-    #    state: enabled
-    #    immediate: true
-    ##  with_items: "{{ ports }}"
-
     - shell: swapoff -a
  
     - lineinfile:
@@ -89,27 +82,17 @@
         - { name: 'net.bridge.bridge-nf-call-ip6tables', value: 1 }
         - { name: 'net.bridge.bridge-nf-call-iptables', value: 1 }
 
+    - lineinfile:
+        dest: /etc/sysconfig/kubelet
+        regexp: 'KUBELET_EXTRA_ARGS='
+        line: 'KUBELET_EXTRA_ARGS=--node-ip={{ ansible_host }}'
+
     - systemd:
         name: kubelet
         state: restarted
         daemon_reload: yes
-      when: 
-        inventory_hostname in groups['master']
 
-    - get_url:
-        url: https://docs.projectcalico.org/v3.8/manifests/calico.yaml
-        force: true
-        sha256sum: c1a2eb14c41ffba4fff432e9a3d2576315fe191339fe30e6fc2988193a77bdba 
-        dest: ./calico.yaml
-
-    - lineinfile:
-        regexp: '192.168.0.0/16'
-        line: '              value:"192.169.0.0/16"'
-        dest: ./calico.yaml
-        state: present
-        backrefs: false
-
-    - shell: kubeadm init --pod-network-cidr=192.169.0.0/16 --apiserver-advertise-address=192.168.33.10
+    - shell: kubeadm init --pod-network-cidr=192.168.0.0/16 --apiserver-advertise-address=172.16.33.10
       when:
         inventory_hostname in groups['master']
         
@@ -163,6 +146,6 @@
       when:
         inventory_hostname in groups['worker']
 
-    - shell: kubectl apply -f ./calico.yaml
+    - shell: kubectl apply -f https://docs.projectcalico.org/v3.8/manifests/calico.yaml
       when:
         inventory_hostname in groups['master']
