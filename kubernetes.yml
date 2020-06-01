@@ -79,13 +79,6 @@
         name: 'kubelet'
         enabled: yes
 
-    - lineinfile:
-        dest: /usr/lib/systemd/system/kubelet.service.d/10-kubeadm.conf
-        state: present
-        regexp: '^EnvironmentFile=\-/etc/sysconfig/kubelet\nExecStart='
-        line: "EnvironmentFile=-/etc/sysconfig/kubelet\nEnvironment='KUBELET_EXTRA_ARGS=--cgroup=systemd'\nExecStart="
-        backrefs: yes
-
     - sysctl:
         name: "{{ item.name }}"
         value: "{{ item.value }}"
@@ -103,7 +96,20 @@
       when: 
         inventory_hostname in groups['master']
 
-    - shell: kubeadm init --pod-network-cidr=192.168.33.0/16 --apiserver-advertise-address=192.168.33.10
+    - get_url:
+        url: https://docs.projectcalico.org/v3.8/manifests/calico.yaml
+        force: true
+        sha256sum: c1a2eb14c41ffba4fff432e9a3d2576315fe191339fe30e6fc2988193a77bdba 
+        dest: ./calico.yaml
+
+    - lineinfile:
+        regexp: '192.168.0.0/16'
+        line: '              value:"192.169.0.0/16"'
+        dest: ./calico.yaml
+        state: present
+        backrefs: false
+
+    - shell: kubeadm init --pod-network-cidr=192.169.0.0/16 --apiserver-advertise-address=192.168.33.10
       when:
         inventory_hostname in groups['master']
         
@@ -151,12 +157,12 @@
         state: present
         line: "export KUBECONFIG=/etc/kubernetes/admin.conf"
         regexp: "^export KUBECONFIG="
-        backrefs: yes
+        backrefs: false
 
     - shell: cat /root/kubeadm_join | sh
       when:
         inventory_hostname in groups['worker']
 
-    - shell: kubectl apply -f https://docs.projectcalico.org/v3.8/manifests/calico.yaml 
+    - shell: kubectl apply -f ./calico.yaml
       when:
         inventory_hostname in groups['master']
